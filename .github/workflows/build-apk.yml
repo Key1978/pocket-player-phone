@@ -1,1 +1,75 @@
-x
+name: Build APK
+
+on: [push, workflow_dispatch]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v5
+
+      - name: Unpack the project if it was uploaded as a zip
+        run: |
+          if [ ! -f package.json ] && [ -f pocket-player-android.zip ]; then
+            unzip -q pocket-player-android.zip -d "$RUNNER_TEMP/pp"
+            cp -r "$RUNNER_TEMP/pp/pocket-player-android/." .
+          fi
+          test -f package.json || { echo "Project files not found. Upload the project files or pocket-player-android.zip."; exit 1; }
+
+      - name: Check all the phone app folders are in the repository
+        run: |
+          for f in www/index.html native/java/MainActivity.java native/java/PocketNativePlugin.java native/java/StreamProxy.java native/res scripts/customize-android.mjs keystore/pocket-player.jks; do
+            test -e "$f" || { echo "::error::$f is missing. Drag the folders (www, native, scripts, keystore) onto GitHub's upload page; the 'choose your files' button skips folders."; exit 1; }
+          done
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Use the Android SDK already on the runner
+        run: |
+          echo "Android SDK: $ANDROID_HOME"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+
+      - name: Install packages
+        run: npm install
+
+      - name: Create the Android project
+        run: |
+          npx cap add android
+          node scripts/customize-android.mjs
+          npx cap sync android
+
+      - name: Build the APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Name the APK
+        run: cp android/app/build/outputs/apk/release/app-release.apk PocketPlayer.apk
+
+      - name: Keep the APK with this run
+        uses: actions/upload-artifact@v4
+        with:
+          name: PocketPlayer-apk
+          path: PocketPlayer.apk
+
+      - name: Publish a release you can download on your phone
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}-${{ github.run_attempt }}
+          name: Pocket Player 1.${{ github.run_number }} (build ${{ github.run_number }})
+          body: Download PocketPlayer.apk below and open it on your Android phone to install.
+          files: PocketPlayer.apk
