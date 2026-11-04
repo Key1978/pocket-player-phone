@@ -1,0 +1,17 @@
+{
+  "name": "pocket-player",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Ad-free music and video player for Android, built with Capacitor.",
+  "scripts": {
+    "android:prepare": "npx cap add android && node scripts/customize-android.mjs && npx cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "jsmediatags": "^3.9.5"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.0.0"
+  }
+}
