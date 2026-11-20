@@ -12,6 +12,8 @@ import android.view.WindowManager;
 import android.webkit.MimeTypeMap;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
+import android.provider.Settings;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -720,6 +722,82 @@ public class PocketNativePlugin extends Plugin {
         getActivity().runOnUiThread(() -> {
             if (on) getActivity().getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
             else getActivity().getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            call.resolve();
+        });
+    }
+
+    /* ================= video gestures: screen brightness, media volume, rotation ================= */
+
+    @PluginMethod
+    public void getBrightness(final PluginCall call) {
+        float cur = -1f;
+        try { if (getActivity() != null) cur = getActivity().getWindow().getAttributes().screenBrightness; } catch (Exception e) { /* ignore */ }
+        if (cur < 0) {
+            try {
+                int sys = Settings.System.getInt(getContext().getContentResolver(), Settings.System.SCREEN_BRIGHTNESS);
+                cur = Math.min(1f, sys / 255f);
+            } catch (Exception e) { cur = 0.5f; }
+        }
+        JSObject r = new JSObject();
+        r.put("level", (double) cur);
+        call.resolve(r);
+    }
+
+    /** level 0..1 sets this app's screen brightness; -1 hands it back to the phone's own setting. */
+    @PluginMethod
+    public void setBrightness(final PluginCall call) {
+        Double v = call.getDouble("level", -1.0);
+        final float level = v == null ? -1f : v.floatValue();
+        if (getActivity() == null) { call.resolve(); return; }
+        getActivity().runOnUiThread(() -> {
+            try {
+                WindowManager.LayoutParams lp = getActivity().getWindow().getAttributes();
+                lp.screenBrightness = level < 0 ? WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE : Math.max(0.01f, Math.min(1f, level));
+                getActivity().getWindow().setAttributes(lp);
+            } catch (Exception e) { /* ignore */ }
+            call.resolve();
+        });
+    }
+
+    @PluginMethod
+    public void getMediaVolume(final PluginCall call) {
+        JSObject r = new JSObject();
+        try {
+            AudioManager am = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+            int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+            int cur = am.getStreamVolume(AudioManager.STREAM_MUSIC);
+            r.put("level", max > 0 ? (double) cur / max : 0.0);
+            r.put("max", max);
+            call.resolve(r);
+        } catch (Exception e) { call.reject("Couldn't read the volume"); }
+    }
+
+    @PluginMethod
+    public void setMediaVolume(final PluginCall call) {
+        Double v = call.getDouble("level", 0.5);
+        double level = v == null ? 0.5 : Math.max(0, Math.min(1, v));
+        JSObject r = new JSObject();
+        try {
+            AudioManager am = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+            int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+            int idx = (int) Math.round(level * max);
+            am.setStreamVolume(AudioManager.STREAM_MUSIC, idx, 0);
+            r.put("level", max > 0 ? (double) am.getStreamVolume(AudioManager.STREAM_MUSIC) / max : 0.0);
+            r.put("max", max);
+            call.resolve(r);
+        } catch (Exception e) { call.reject("Couldn't change the volume"); }
+    }
+
+    /** mode: "landscape", "portrait" or "auto" */
+    @PluginMethod
+    public void setOrientation(final PluginCall call) {
+        String mode = call.getString("mode", "auto");
+        final int o = "landscape".equals(mode) ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                : "portrait".equals(mode) ? ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                : ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+        if (getActivity() == null) { call.resolve(); return; }
+        getActivity().runOnUiThread(() -> {
+            try { getActivity().setRequestedOrientation(o); } catch (Exception e) { /* ignore */ }
             call.resolve();
         });
     }
